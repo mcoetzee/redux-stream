@@ -7,12 +7,11 @@ import { Observable } from 'rxjs';
 const FOO = '@test/FOO';
 const BAR = '@test/BAR';
 
-const noopModule = {
-  reducer: (state = [], action) => state,
-};
 
 describe('redux-streams', () => {
   it('exposes the public API', () => {
+    const noopModule = (state = [], action) => state;
+
     const store = createStore(
       { noopModule },
       reduxStream
@@ -27,9 +26,7 @@ describe('redux-streams', () => {
 
   it('gets initial state from reducer', () => {
     const initialState = { valueA: 10 };
-    const fooModule = {
-      reducer: (state = initialState, action) => state
-    };
+    const fooModule = (state = initialState, action) => state;
 
     const store = createStore(
       { fooModule },
@@ -47,34 +44,24 @@ describe('redux-streams', () => {
 
   describe('dispatch', () => {
     it('reaches all active streams', () => {
-      const fooModule = {
-        reducer(state = [], { type }) {
-          switch (type) {
-            case FOO:
-              return state.concat(type);
-            default:
-              return state;
-          }
-        },
+      const fooModule = (state = [], { type }) => {
+        switch (type) {
+          case FOO:
+            return state.concat(type);
+          default:
+            return state;
+        }
       };
-      const barModule = {
-        reducer(state = [], { type }) {
-          switch (type) {
-            case BAR:
-              return state.concat(type);
-            default:
-              return state;
-          }
-        },
+      const barModule = (state = [], { type }) => {
+        switch (type) {
+          case BAR:
+            return state.concat(type);
+          default:
+            return state;
+        }
       };
 
-      const store = createStore(
-        {
-          fooModule,
-          barModule,
-        },
-        reduxStream
-      );
+      const store = createStore({ fooModule, barModule }, reduxStream);
 
       let fooState;
       const subOne = store.getState$('fooModule').subscribe(state => {
@@ -381,7 +368,7 @@ describe('redux-streams', () => {
     }
 
     const modules = {};
-    for (let i = 0; i < 101; i++) {
+    for (let i = 0; i < 251; i++) {
       const moduleName = `module${i}`;
       modules[moduleName] = generateModule(i);
     }

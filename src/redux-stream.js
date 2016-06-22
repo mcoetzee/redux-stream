@@ -29,30 +29,36 @@ export function reduxStream(createReduxStore) {
    * dispatch actions and read the current state of the application.
    */
   return function createStore(definitions, preloadedState) {
-    // The raw action stream used to dispatch actions
+    // The stream where actions are dispatched into
     const dispatch$ = new Subject();
+    // The stream where all modules' effects flow through
     const sideEffect$ = new Subject();
     const stateStreams = {};
-    let store;
+    let reduxStore;
     let state$;
 
     /**
-     * Adds a state stream for each module definition provided
+     * Initialize the store with provided module definitions
      */
     function init(defs) {
       const moduleNames = Object.keys(defs);
       const reducers = {};
+      let reducer;
       moduleNames.forEach(moduleName => {
         const moduleResources = defs[moduleName];
-        reducers[moduleName] = moduleReducer(moduleName, moduleResources.reducer);
+        reducer = typeof moduleResources === 'function'
+          ? moduleResources
+          : moduleResources.reducer;
+        // User higher-order reducer (which handles HYDRATE and CLEAR_STATE actions
+        reducers[moduleName] = moduleReducer(moduleName, reducer);
       });
 
-      store = createReduxStore(
+      reduxStore = createReduxStore(
         combineReducers(reducers),
         preloadedState
       );
 
-      state$ = Observable.from(store)
+      state$ = Observable.from(reduxStore)
         .publishReplay(1)
         .refCount();
     }
@@ -61,7 +67,7 @@ export function reduxStream(createReduxStore) {
      * Dispacthes the given action
      */
     function dispatch(action) {
-      store.dispatch(action);
+      reduxStore.dispatch(action);
       dispatch$.next(action);
     }
 
@@ -78,7 +84,7 @@ export function reduxStream(createReduxStore) {
       if (def.effects) {
         // The API provided to each effects function in addition to the dispatch$
         const fxAPI = {
-          getState: store.getState,
+          getState: reduxStore.getState,
           getState$,
           effects$: sideEffect$.filter(a => a.meta !== moduleName).delay(0, Scheduler.asap),
           dispatch,
@@ -100,6 +106,9 @@ export function reduxStream(createReduxStore) {
       return stateStream;
     }
 
+    /**
+     * Create a module's state stream with provided effects streams
+     */
     function createState$(moduleName, effectsStreams) {
       const effects$ = Observable.merge(...effectsStreams);
       let effectsSubscription;
@@ -111,7 +120,7 @@ export function reduxStream(createReduxStore) {
             return;
           }
           effectsSubscription = effects$.subscribe(action => {
-            store.dispatch(action);
+            reduxStore.dispatch(action);
             sideEffect$.next({
               ...action,
               meta: moduleName,
@@ -130,7 +139,7 @@ export function reduxStream(createReduxStore) {
      * This action is automatically handled by the module's higher-order reducer
      */
     function hydrate(moduleName, h) {
-      store.dispatch({
+      reduxStore.dispatch({
         type: hydrateActionType(moduleName),
         payload: h,
       });
@@ -142,7 +151,7 @@ export function reduxStream(createReduxStore) {
      * the module's higher-order reducer
      */
     function clearState(moduleName) {
-      store.dispatch({
+      reduxStore.dispatch({
         type: clearStateActionType(moduleName)
       });
     }
@@ -152,7 +161,7 @@ export function reduxStream(createReduxStore) {
 
     // Store API
     return {
-      ...store,
+      ...reduxStore,
       dispatch,
       getState$,
       hydrate,
