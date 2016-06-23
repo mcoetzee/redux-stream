@@ -1,8 +1,9 @@
 /* globals describe it */
 import { expect } from 'chai';
-import { createStore } from 'redux';
+import { createStore, applyMiddleware, compose } from 'redux';
 import { reduxStream } from '../';
 import { Observable } from 'rxjs';
+import createLogger from 'redux-logger';
 
 const FOO = '@test/FOO';
 const BAR = '@test/BAR';
@@ -200,7 +201,10 @@ describe('redux-streams', () => {
       }
     };
 
-    const store = createStore({ barSideEffectModule, barModule }, reduxStream);
+    const store = createStore(
+      { barSideEffectModule, barModule },
+      reduxStream
+    );
 
     let barSideEffetState;
     const sub1 = store.getState$('barSideEffectModule').subscribe(state => {
@@ -600,5 +604,68 @@ describe('redux-streams', () => {
       sub2.unsubscribe();
       done();
     }, 20);
+  });
+
+  it('provides clears state helper for a module', () => {
+    const fooModule = (state = [1, 2], action) => {
+      switch (action.type) {
+        case FOO:
+          return state.concat(action.payload);
+        default:
+          return state;
+      }
+    };
+
+    const store = createStore(
+      { fooModule },
+      compose(
+        reduxStream,
+        applyMiddleware(createLogger())
+      )
+    );
+
+    let fooState;
+    const sub1 = store.getState$('fooModule').subscribe(state => {
+      fooState = state;
+    });
+
+    store.dispatch({ type: FOO, payload: 3 });
+    store.dispatch({ type: FOO, payload: 4 });
+    expect(fooState).to.deep.eq([1, 2, 3, 4]);
+
+    store.clearState('fooModule');
+    expect(fooState).to.deep.eq([1, 2]);
+    sub1.unsubscribe();
+  });
+
+  it('provides hydrate helper for a module', () => {
+    const fooModule = (state = { foos: [] }, action) => {
+      switch (action.type) {
+        case FOO:
+          return {
+            ...state,
+            foos: state.foos.concat(action.payload),
+          };
+        default:
+          return state;
+      }
+    };
+
+    const store = createStore(
+      { fooModule },
+      reduxStream
+    );
+
+    let fooState;
+    const sub1 = store.getState$('fooModule').subscribe(state => {
+      fooState = state;
+    });
+
+    expect(fooState).to.deep.eq({ foos: [] });
+
+    store.hydrate('fooModule', { foos: [1, 2] });
+
+    expect(fooState).to.deep.eq({ foos: [1, 2], hydrated: true });
+    sub1.unsubscribe();
   });
 });
