@@ -16,7 +16,7 @@ export function reduxStream(createReduxStore) {
    */
 
   /**
-   * Creates a Redux Store which houses a collection of state streams. It adds a state
+   * Creates a Redux Store which houses a collection of state streams. It lazily adds a state
    * stream for each module definition provided.
    *
    * @param {Object} definitions - The module definitions. Each module definition
@@ -33,8 +33,10 @@ export function reduxStream(createReduxStore) {
     const dispatch$ = new Subject();
     // The stream where all modules' effects flow through
     const sideEffect$ = new Subject();
+    // Collection of state streams by module - each one is lazily added
     const stateStreams = {};
     let reduxStore;
+    // The state stream of the entire app
     let state$;
 
     /**
@@ -49,7 +51,7 @@ export function reduxStream(createReduxStore) {
         reducer = typeof moduleResources === 'function'
           ? moduleResources
           : moduleResources.reducer;
-        // User higher-order reducer (which handles HYDRATE and CLEAR_STATE actions
+        // User higher-order reducer (which handles HYDRATE and CLEAR_STATE actions)
         reducers[moduleName] = moduleReducer(moduleName, reducer);
       });
 
@@ -58,6 +60,7 @@ export function reduxStream(createReduxStore) {
         preloadedState
       );
 
+      // Create the state stream from the Redux store. It just works (TM)
       state$ = Observable.from(reduxStore)
         .publishReplay(1)
         .refCount();
@@ -72,7 +75,7 @@ export function reduxStream(createReduxStore) {
     }
 
     /**
-     * Gets the state stream for given module
+     * Gets the state stream for given module or creates it if not yet added.
      */
     function getState$(moduleName) {
       let stateStream = stateStreams[moduleName];
@@ -80,21 +83,29 @@ export function reduxStream(createReduxStore) {
         return stateStream;
       }
 
-      const def = definitions[moduleName];
-      if (def.effects) {
-        // The API provided to each effects function in addition to the dispatch$
+      const moduleDefinition = definitions[moduleName];
+      if (moduleDefinition.effects) {
+        // All side effects flow though the sideEffect$, so we filter out the effect
+        // streams that originate from this module to avoid unnecessary round-abouts
+        const effects$ = sideEffect$
+          .filter(a => a.meta !== moduleName)
+          .delay(0, Scheduler.asap);
+
+        // The main source for forming side effects - the action stream
+        const action$ = dispatch$.merge(effects$);
+
+        // API provided to form effects streams over and above the main source
         const fxAPI = {
           getState: reduxStore.getState,
+          // Can be used to compose side-effects of independent modules
           getState$,
-          effects$: sideEffect$.filter(a => a.meta !== moduleName).delay(0, Scheduler.asap),
+          // An escape hatch if stream composition doesn't fit
           dispatch,
         };
 
-        const effectsStreams = def.effects(dispatch$, fxAPI);
-        stateStream = createState$(
-          moduleName,
-          effectsStreams
-        );
+        const effectsStreams = moduleDefinition.effects(action$, fxAPI);
+
+        stateStream = createState$(moduleName, effectsStreams);
       } else {
         stateStream = state$.pluck(moduleName)
           .distinctUntilChanged()
@@ -114,21 +125,29 @@ export function reduxStream(createReduxStore) {
       let effectsSubscription;
       return state$
         .pluck(moduleName)
+        // Start with the instruction to connect the module's effects stream.
+        // This only fires on subscribe or re-subscribe after going cold
         .startWith(CONNECT_STREAM)
         .do(v => {
           if (v !== CONNECT_STREAM) {
             return;
           }
+          // Subscribe to the module's effects stream so that we can dispatch
+          // the side effects to the reducers
           effectsSubscription = effects$.subscribe(action => {
             reduxStore.dispatch(action);
+            // Other modules might be interested in this effect so pass it along
             sideEffect$.next({
               ...action,
               meta: moduleName,
             });
           });
         })
+        // Skip the connect instruction
         .skip(1)
+        // Clean up after the last observer unsubscribes
         .finally(() => effectsSubscription.unsubscribe())
+        // Only let new state though
         .distinctUntilChanged()
         .publishReplay(1)
         .refCount();

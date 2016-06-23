@@ -94,8 +94,8 @@ describe('redux-streams', () => {
 
   it('provides access to application state when composing flow', (done) => {
     const fooModule = {
-      effects(dispatch$, { getState }) {
-        const fooBar$ = dispatch$.filterAction(FOO)
+      effects(action$, { getState }) {
+        const fooBar$ = action$.filterAction(FOO)
           .pluckPayload()
           .map(foo => getState().barModule.bar * foo)
           .mapAction('FOO_BAR');
@@ -148,8 +148,8 @@ describe('redux-streams', () => {
 
   it('provides access to all action streams when composing flow', (done) => {
     const barSideEffectModule = {
-      effects(_, { effects$ }) {
-        const barEffect$ = effects$.filterAction('BAR_EFFECT');
+      effects(action$) {
+        const barEffect$ = action$.filterAction('BAR_EFFECT');
         const bar1$ = barEffect$
           .pluckPayload()
           .filter(bar => bar <= 41)
@@ -183,9 +183,9 @@ describe('redux-streams', () => {
       }
     };
     const barModule = {
-      effects(dispatch$) {
+      effects(action$) {
         return [
-          dispatch$.filterAction(BAR)
+          action$.filterAction(BAR)
             .pluckPayload()
             .map(bar => bar * 2)
             .mapAction('BAR_EFFECT')
@@ -317,9 +317,9 @@ describe('redux-streams', () => {
         shoot: []
       };
       return {
-        effects(dispatch$) {
-          const someFoo$ = dispatch$.filterAction(SOME_FOO);
-          const someBar$ = dispatch$.filterAction(SOME_BAR);
+        effects(action$) {
+          const someFoo$ = action$.filterAction(SOME_FOO);
+          const someBar$ = action$.filterAction(SOME_BAR);
 
           const peakyEffect$ = Observable
             .merge(
@@ -336,7 +336,7 @@ describe('redux-streams', () => {
 
           return [
             peakyEffect$,
-            dispatch$.filterAction(SHOOT)
+            action$.filterAction(SHOOT)
               .pluckPayload()
               .map(s => s * 100)
               .mapAction(SHOOT_EFFECT)
