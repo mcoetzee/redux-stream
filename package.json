@@ -1,6 +1,6 @@
 {
   "name": "redux-stream",
-  "version": "0.0.0-alpha.1",
+  "version": "0.0.0-alpha.2",
   "description": "Use RxJS-based state streams with Redux",
   "main": "lib/index.js",
   "scripts": {
