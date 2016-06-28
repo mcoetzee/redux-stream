@@ -651,4 +651,41 @@ describe('redux-streams', () => {
     expect(fooState).to.deep.eq({ foos: [1, 2], hydrated: true });
     sub1.unsubscribe();
   });
+
+  it('allows dispatching a thunk to conditionally dispatch', () => {
+    const fooModule = (state = { foos: [] }, action) => {
+      switch (action.type) {
+        case FOO:
+          return {
+            ...state,
+            foos: state.foos.concat(action.payload),
+          };
+        default:
+          return state;
+      }
+    };
+
+    const store = createStore({ fooModule }, reduxStream);
+
+    let fooState;
+    const sub1 = store.getState$('fooModule').subscribe(state => {
+      fooState = state;
+    });
+
+    const conditionalFoo = (dispatch, getState) => {
+      if (getState().fooModule.foos.length > 1) {
+        return;
+      }
+      dispatch({ type: FOO, payload: 1 });
+    };
+
+    store.dispatch(conditionalFoo);
+    expect(fooState.foos).to.have.length(1);
+    store.dispatch(conditionalFoo);
+    expect(fooState.foos).to.have.length(2);
+    store.dispatch(conditionalFoo);
+    expect(fooState.foos).to.have.length(2);
+
+    sub1.unsubscribe();
+  });
 });

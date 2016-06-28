@@ -79,6 +79,10 @@ export function reduxStream(createReduxStore) {
      * Dispacthes the given action
      */
     function dispatch(action) {
+      if (typeof action === 'function') {
+        action(dispatch, getState);
+        return;
+      }
       reduxStore.dispatch(action);
       action$.next(action);
     }
