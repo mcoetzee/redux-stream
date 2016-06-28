@@ -14,7 +14,7 @@ function fromPromise(apiOperation, cancel$) {
   };
 }
 
-Observable.prototype.filterAction = function(type) {
+Observable.prototype.ofType = function(type) {
   return this.filter(action => action.type === type).share();
 };
 
