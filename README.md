@@ -1,18 +1,31 @@
 # redux-stream
 ### Warning: Very experimental. Do not use in production.
-Use [RxJS 5](https://github.com/ReactiveX/RxJS) to compose streams of side effects with Redux. redux-stream is a Redux store enhancer that works alongside middleware, so it is possible to gradually introduce redux-stream into an application that makes use of thunk-middleware.
+Use [RxJS 5](https://github.com/ReactiveX/RxJS) to compose side effect streams with Redux. `redux-stream` is a Redux store enhancer. 
 
-Side effect composing of:
-- Ajax
-- Inter module actions (eg. selecting a search filter triggers a search)
-- Independent modules' state changes
-- Independent modules' actions
+Features:
+- Works alongside middleware
+- Gradually introduce redux-stream into an application that makes use of thunk-middleware
+- Side effect composing of:
+ - Ajax
+ - Inter module actions (eg. selecting a search filter triggers a search)
+ - Independent modules' state changes
+ - Independent modules' actions
+- Dispatch thunks to cater for conditional dispatching
 
 Dan Abramov opened up an issue on Redux: https://github.com/reactjs/redux/issues/1528
 > ## Problem: Side Effects and Composition
 > ... This is the big problem with middleware. When you compose independent apps into a single app, neither of them is “at the top”. This is where the today’s Redux paradigm breaks down—we don’t have a good way of composing side effects of independent “subapplications”.
 
-redux-stream provides a solution to this issue through state streams. When composing your module's side effects, you have access to all state streams, which allows you to react to an independent module's state changes and produce side effects from it.
+`redux-stream` provides a solution to this issue through state streams. When composing your module's side effects, you have access to all state streams, which allows you to react to an independent module's state changes and produce side effects from it.
+
+## Install
+
+NOTE: This has a peer dependencies of `rxjs@5.0.*` and `redux`
+
+```sh
+npm install --save redux-stream
+```
+
 
 ## Composing side effects
 ### Ajax
@@ -202,10 +215,10 @@ sideEffectModule = effects(computedResult)(sideEffectModule);
 
 const store = createStore({ subjectModule, sideEffectModule }, reduxStream);
 
-store.subscribe(() =>
+store.subscribe(() => {
   console.log('Subject state: ', store.getState().subjectModule);
   console.log('Side effect state: ', store.getState().sideEffectModule);
-);
+});
 
 store.dispatch({ type: 'COMPUTE', payload: 10 });
 // >_ Subject state: { computed: 100 }
