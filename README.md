@@ -18,8 +18,9 @@ redux-stream provides a solution to this issue through state streams. When compo
 ### Ajax
 ```js
 import { createStore } from 'redux';
-import reduxStream from 'redux-stream';
+import reduxStream, { effects } from 'redux-stream';
 
+// Side effect producer
 const searchResponse = action$ =>
   action$.ofType('SEARCH')
     // Grab the query from the payload
@@ -29,36 +30,35 @@ const searchResponse = action$ =>
     // Map the server response to the response action
     .mapAction('SEARCH_RESPONSE')
 
-const productSearch = {
-  effects: [
-    searchResponse,
-  ],
-  // Plain old reducer function - reduces state for provided data flow
-  reducer(state = { searching: false, results: [] }, action) {
-    switch (action.type) {
-    case 'SEARCH':
-      return {
-        ...state,
-        searching: true,
-      };
-    case 'SEARCH_RESPONSE':
-      return {
-        ...state,
-        searching: false,
-        results: action.payload,
-      };
-    default:
-      return state;
-    } 
-  }
+// Plain old reducer
+function productSearch(state = { searching: false, results: [] }, action) {
+  switch (action.type) {
+  case 'SEARCH':
+    return {
+      ...state,
+      searching: true,
+    };
+  case 'SEARCH_RESPONSE':
+    return {
+      ...state,
+      searching: false,
+      results: action.payload,
+    };
+  default:
+    return state;
+  } 
 };
 
+// Compose module with side effects and reducer
+productSearch = effects(searchResponse)(productSearch);
+
+// Create Redux store - enhanced with Redux Stream (no need to 
+// combine reducers)
 const store = createStore({ productSearch }, reduxStream);
 
-store.getState$('productSearch').subscribe(state => {
-  console.log('Search state: ', state);
-});
-// >_ Search state: { searching: false, results: [] }
+store.subscribe(() =>
+  console.log('Search state: ', store.getState().productSearch);
+);
 
 store.dispatch({ type: 'SEARCH', payload: 'Foo bar' });
 // >_ Search state: { searching: true, results: [] }
@@ -67,9 +67,6 @@ store.dispatch({ type: 'SEARCH', payload: 'Foo bar' });
 ```
 ### Inter module side effects
 ```js
-import { createStore } from 'redux';
-import reduxStream from 'redux-stream';
-
 const initialState = { 
   searching: false,
   movies: [] , 
@@ -78,6 +75,11 @@ const initialState = {
   releaseYear: 2016 
 };
 
+/** 
+  * Search side effect producer. 
+  * When selecting genres or year of release, we need to trigger a 
+  * movie search (only if we haven't unselected all genres)
+  */
 const searchSideEffect = (action$, { getState }) =>
   Observable
     .merge(
@@ -102,6 +104,7 @@ const searchSideEffect = (action$, { getState }) =>
     .filter(query => query.genres.length > 0)
     .mapAction('SEARCH_MOVIES')
 
+// Search response side effect producer
 const searchResponse = action$ => 
   action$.ofType('SEARCH_MOVIES')
     // Grab the query from the payload
@@ -111,48 +114,44 @@ const searchResponse = action$ =>
     // Map the server response to the response action
     .mapAction('SEARCH_MOVIES_RESPONSE')
 
-const movieSearch = {  
-  effects: [
-    searchSideEffect,
-    searchResponse,
-  ],
-  // Plain old reducer function
-  reducer(state = initialState, action) {
-    switch (action.type) {
-    case 'SELECT_GENRES':
-      return {
-        ...state,
-        genres: action.payload,
-      };
-    case 'SELECT_RELEASE_YEAR':
-      return {
-        ...state,
-        releaseYear: action.payload,
-      };
-    case 'SEARCH_MOVIES':
-      return {
-        ...state,
-        searchPhrase: action.payload.searchPhrase,
-        searching: true,
-      };   
-    case 'SEARCH_MOVIES_RESPONSE':
-      return {
-        ...state,
-        searching: false,
-        movies: action.payload,
-      }; 
-    default:
-      return state;
-    } 
-  }
+// The reducer
+function movieSearch(state = initialState, action) {
+  switch (action.type) {
+  case 'SELECT_GENRES':
+    return {
+      ...state,
+      genres: action.payload,
+    };
+  case 'SELECT_RELEASE_YEAR':
+    return {
+      ...state,
+      releaseYear: action.payload,
+    };
+  case 'SEARCH_MOVIES':
+    return {
+      ...state,
+      searchPhrase: action.payload.searchPhrase,
+      searching: true,
+    };   
+  case 'SEARCH_MOVIES_RESPONSE':
+    return {
+      ...state,
+      searching: false,
+      movies: action.payload,
+    }; 
+  default:
+    return state;
+  } 
 };
+
+// Compose module with side effects and reducer
+movieSearch = effects(searchSideEffect, searchResponse)(movieSearch);
 
 const store = createStore({ movieSearch }, reduxStream);
 
-store.getState$('movieSearch').subscribe(state => {
-  console.log('Movies state: ', state);
-});
-// >_ Movies state: { searching: false, movies: [], ..., releaseYear: 2016,  }
+store.subscribe(() =>
+  console.log('Movies state: ', store.getState().movieSearch);
+);
 
 store.dispatch({ type: 'SELECT_GENRES', payload: ['Drama', 'Action'] });
 // >_ Movies state: { searching: false, movies: [], searchPhrase: '', genres: ['Drama', 'Action'], ... }
@@ -163,7 +162,7 @@ store.dispatch({ type: 'SELECT_GENRES', payload: ['Drama', 'Action'] });
 
 ### Composing side effects of independent modules
 ```js
-const subjectModule = (state = { computed: 0 }, action) {
+function subjectModule(state = { computed: 0 }, action) {
   switch (action.type) {
   case 'COMPUTE':
     return {
@@ -175,7 +174,8 @@ const subjectModule = (state = { computed: 0 }, action) {
   }
 }
 
-const computed = (action$, { getState$ }) =>
+// Side effect producer
+const computedResult = (action$, { getState$ }) =>
   // Listen to state changes - skip the initial state 
   getState$('subjectModule').skip(1)
     // Grab the state we are interested in  
@@ -185,33 +185,40 @@ const computed = (action$, { getState$ }) =>
     // Map it as the payload to a new action
     .mapAction('COMPUTED_RESULT')
 
-const sideEffectModule = {
-  effects: [
-    computed
-  ],
-  reducer(state = { results: [] }, action) {
-    switch (action.type) {
-    case 'COMPUTED_RESULT':
-      return {
-        ...state,
-        results: state.results.concat(action.payload),
-      };
-    default:
-      return state;
-    }
+function sideEffectModule(state = { results: [] }, action) {
+  switch (action.type) {
+  case 'COMPUTED_RESULT':
+    return {
+      ...state,
+      results: state.results.concat(action.payload),
+    };
+  default:
+    return state;
   }
-};
+}
+
+// Compose module with side effects and reducer
+sideEffectModule = effects(computedResult)(sideEffectModule);
 
 const store = createStore({ subjectModule, sideEffectModule }, reduxStream);
 
-store.getState$('sideEffectModule').subscribe(state => {
-  console.log('Side effect state: ', state);
-});
-// >_ Side effect state: { results: [] }
+store.subscribe(() =>
+  console.log('Subject state: ', store.getState().subjectModule);
+  console.log('Side effect state: ', store.getState().sideEffectModule);
+);
 
 store.dispatch({ type: 'COMPUTE', payload: 10 });
+// >_ Subject state: { computed: 100 }
+// >_ Side effect state: { results: [] }
+// ...
+// >_ Subject state: { computed: 100 }
 // >_ Side effect state: { results: [100] }
+
 store.dispatch({ type: 'COMPUTE', payload: 100 });
+// >_ Subject state: { computed: 1000 }
+// >_ Side effect state: { results: [100] }
+// ...
+// >_ Subject state: { computed: 1000 }
 // >_ Side effect state: { results: [100, 1000] }
 ```
 
