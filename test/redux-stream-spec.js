@@ -1,9 +1,8 @@
 /* globals describe it */
 import { expect } from 'chai';
-import { createStore, applyMiddleware, compose } from 'redux';
-import { reduxStream } from '../';
+import { createStore } from 'redux';
+import reduxStream, { effects } from '../';
 import { Observable } from 'rxjs';
-import createLogger from 'redux-logger';
 
 const FOO = '@test/FOO';
 const BAR = '@test/BAR';
@@ -12,10 +11,7 @@ describe('redux-streams', () => {
   it('exposes the public API', () => {
     const noopModule = (state = [], action) => state;
 
-    const store = createStore(
-      { noopModule },
-      reduxStream
-    );
+    const store = createStore({ noopModule }, reduxStream);
 
     expect(store.getState$).to.be.a('function');
     expect(store.getState).to.be.a('function');
@@ -92,37 +88,34 @@ describe('redux-streams', () => {
   });
 
   it('provides access to application state when composing flow', (done) => {
-    const fooModule = {
-      effects: [
-        (action$, { getState }) =>
-          action$.ofType(FOO)
-            .pluckPayload()
-            .map(foo => getState().barModule.bar * foo)
-            .mapAction('FOO_BAR')
-      ],
-      reducer(state = { foos: [], fooBars: [] }, { type, payload }) {
-        switch (type) {
-          case FOO:
-            return {
-              ...state,
-              foos: state.foos.concat(payload),
-            };
-          case 'FOO_BAR':
-            return {
-              ...state,
-              fooBars: state.fooBars.concat(payload),
-            };
-          default:
-            return state;
-        }
+    const fooBar = (action$, { getState }) =>
+      action$.ofType(FOO)
+        .pluckPayload()
+        .map(foo => getState().barModule.bar * foo)
+        .mapAction('FOO_BAR');
+
+    function fooModule(state = { foos: [], fooBars: [] }, { type, payload }) {
+      switch (type) {
+        case FOO:
+          return {
+            ...state,
+            foos: state.foos.concat(payload),
+          };
+        case 'FOO_BAR':
+          return {
+            ...state,
+            fooBars: state.fooBars.concat(payload),
+          };
+        default:
+          return state;
       }
     };
 
-    const barModule = {
-      reducer(state = { bar: 2 }, action) {
-        return state;
-      }
-    };
+    fooModule = effects(fooBar)(fooModule);
+
+    function barModule(state = { bar: 2 }, action) {
+      return state;
+    }
 
     const store = createStore({ fooModule, barModule }, reduxStream);
 
@@ -145,54 +138,53 @@ describe('redux-streams', () => {
   });
 
   it('provides access to all action streams when composing flow', (done) => {
-    const barSideEffectModule = {
-      effects: [
-        action$ =>
-          action$.ofType('BAR_EFFECT')
-            .pluckPayload()
-            .filter(bar => bar <= 41)
-            .mapAction('BAR_1'),
+    const barOne = action$ =>
+      action$.ofType('BAR_EFFECT')
+        .pluckPayload()
+        .filter(bar => bar <= 41)
+        .mapAction('BAR_1');
 
-        action$ =>
-          action$.ofType('BAR_EFFECT')
-            .pluckPayload()
-            .filter(bar => bar > 41)
-            .mapAction('BAR_2')
-      ],
-      reducer(state = { barOnes: [], barTwos: [] }, action) {
-        switch (action.type) {
-          case 'BAR_1':
-            return {
-              ...state,
-              barOnes: state.barOnes.concat(action.payload),
-            };
-          case 'BAR_2':
-            return {
-              ...state,
-              barTwos: state.barTwos.concat(action.payload),
-            };
-          default:
-            return state;
-        }
+    const barTwo = action$ =>
+      action$.ofType('BAR_EFFECT')
+        .pluckPayload()
+        .filter(bar => bar > 41)
+        .mapAction('BAR_2');
+
+    function barSideEffectModule(state = { barOnes: [], barTwos: [] }, action) {
+      switch (action.type) {
+        case 'BAR_1':
+          return {
+            ...state,
+            barOnes: state.barOnes.concat(action.payload),
+          };
+        case 'BAR_2':
+          return {
+            ...state,
+            barTwos: state.barTwos.concat(action.payload),
+          };
+        default:
+          return state;
       }
-    };
-    const barModule = {
-      effects: [
-        action$ =>
-          action$.ofType(BAR)
-            .pluckPayload()
-            .map(bar => bar * 2)
-            .mapAction('BAR_EFFECT')
-      ],
-      reducer(state = [], action) {
-        switch (action.type) {
-          case 'BAR_EFFECT':
-            return state.concat(action.payload);
-          default:
-            return state;
-        }
+    }
+
+    barSideEffectModule = effects(barOne, barTwo)(barSideEffectModule);
+
+    const barEffect = action$ =>
+      action$.ofType(BAR)
+        .pluckPayload()
+        .map(bar => bar * 2)
+        .mapAction('BAR_EFFECT');
+
+    function barModule(state = [], action) {
+      switch (action.type) {
+        case 'BAR_EFFECT':
+          return state.concat(action.payload);
+        default:
+          return state;
       }
-    };
+    }
+
+    barModule = effects(barEffect)(barModule);
 
     const store = createStore(
       { barSideEffectModule, barModule },
@@ -329,38 +321,34 @@ describe('redux-streams', () => {
           .map(s => s * 100)
           .mapAction(SHOOT_EFFECT);
 
-      return {
-        effects: [
-          peakyEffect,
-          shootEffect,
-        ],
-        reducer(state = initialState, action) {
-          switch (action.type) {
-            case SOME_FOO:
-              return {
-                ...state,
-                foo: state.foo.concat(action.payload),
-              };
-            case SOME_BAR:
-              return {
-                ...state,
-                bar: state.bar.concat(action.payload),
-              };
-            case PEAKY_EFFECT:
-              return {
-                ...state,
-                peakyEffect: state.peakyEffect.concat(action.payload),
-              };
-            case SHOOT:
-              return {
-                ...state,
-                shoot: state.shoot.concat(action.payload),
-              };
-            default:
-              return state;
-          }
+      const reducer = (state = initialState, action) => {
+        switch (action.type) {
+          case SOME_FOO:
+            return {
+              ...state,
+              foo: state.foo.concat(action.payload),
+            };
+          case SOME_BAR:
+            return {
+              ...state,
+              bar: state.bar.concat(action.payload),
+            };
+          case PEAKY_EFFECT:
+            return {
+              ...state,
+              peakyEffect: state.peakyEffect.concat(action.payload),
+            };
+          case SHOOT:
+            return {
+              ...state,
+              shoot: state.shoot.concat(action.payload),
+            };
+          default:
+            return state;
         }
       };
+
+      return effects(peakyEffect, shootEffect)(reducer);
     }
 
     const modules = {};
@@ -523,7 +511,7 @@ describe('redux-streams', () => {
   });
 
   it('provides access to state streams when composing flow', (done) => {
-    const mainModule = (state = { computed: {}, foos: [] }, action) => {
+    function mainModule(state = { computed: {}, foos: [] }, action) {
       switch (action.type) {
         case 'COMPUTE':
           return {
@@ -540,25 +528,24 @@ describe('redux-streams', () => {
         default:
           return state;
       }
-    };
+    }
 
-    const sideEffectModule = {
-      effects: [
-        (action$, { getState$ }) =>
-          getState$('mainModule').skip(1)
-            .pluck('computed')
-            .distinctUntilChanged()
-            .mapAction('SIDE_EFFECT')
-      ],
-      reducer(state = [], action) {
-        switch (action.type) {
-          case 'SIDE_EFFECT':
-            return state.concat(action.payload.result + 1);
-          default:
-            return state;
-        }
+    const computedEffect = (action$, { getState$ }) =>
+      getState$('mainModule').skip(1)
+        .pluck('computed')
+        .distinctUntilChanged()
+        .mapAction('COMPUTED_EFFECT');
+
+    function sideEffectModule(state = [], action) {
+      switch (action.type) {
+        case 'COMPUTED_EFFECT':
+          return state.concat(action.payload.result + 1);
+        default:
+          return state;
       }
-    };
+    }
+
+    sideEffectModule = effects(computedEffect)(sideEffectModule);
 
     const store = createStore({ sideEffectModule, mainModule }, reduxStream);
 
@@ -602,13 +589,7 @@ describe('redux-streams', () => {
       }
     };
 
-    const store = createStore(
-      { fooModule },
-      compose(
-        reduxStream,
-        applyMiddleware(createLogger())
-      )
-    );
+    const store = createStore({ fooModule }, reduxStream);
 
     let fooState;
     const sub1 = store.getState$('fooModule').subscribe(state => {

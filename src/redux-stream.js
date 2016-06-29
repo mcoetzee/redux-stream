@@ -1,9 +1,8 @@
 import { Observable, Subject } from './rx-ext';
-// import { Scheduler } from 'rxjs';
 import { combineReducers } from 'redux';
 import { moduleReducer, hydrateActionType, clearStateActionType } from './module-utils';
 
-export function reduxStream(createReduxStore) {
+export default function reduxStream(createReduxStore) {
   /**
    * @typedef moduleDefinition
    * @type {Object}
@@ -39,8 +38,9 @@ export function reduxStream(createReduxStore) {
      */
     function init(defs) {
       const reducers = {};
-      const actionStreams = [];
-      const effectsAPI = { getState, getState$, dispatch };
+      const sideEffectStreams = [];
+      // Tools to compose side effects (in addtion to the action stream)
+      const effectsAPI = { getState: () => reduxStore.getState(), getState$, dispatch };
 
       Object.keys(defs).forEach(moduleName => {
         let reducer;
@@ -50,7 +50,7 @@ export function reduxStream(createReduxStore) {
         } else {
           reducer = moduleResources.reducer;
           if (moduleResources.effects) {
-            actionStreams.push(...moduleResources.effects.map(e => e(action$, effectsAPI)));
+            sideEffectStreams.push(...moduleResources.effects.map(e => e(action$, effectsAPI)));
           }
         }
         // User higher-order reducer (which handles HYDRATE and CLEAR_STATE actions)
@@ -67,8 +67,8 @@ export function reduxStream(createReduxStore) {
         .publishReplay(1)
         .refCount();
 
-      if (actionStreams.length) {
-        Observable.merge(...actionStreams).subscribe(action => {
+      if (sideEffectStreams.length) {
+        Observable.merge(...sideEffectStreams).subscribe(action => {
           reduxStore.dispatch(action);
           action$.next(action);
         });
@@ -76,29 +76,16 @@ export function reduxStream(createReduxStore) {
     }
 
     /**
-     * Dispacthes the given action
+     * Dispacthes the given action. Allows minimal thunks to be dispatched to cater
+     * for conditional dispatching etc.
      */
     function dispatch(action) {
       if (typeof action === 'function') {
-        action(dispatch, getState);
+        action(dispatch, reduxStore.getState);
         return;
       }
       reduxStore.dispatch(action);
       action$.next(action);
-    }
-
-    function getState() {
-      return reduxStore.getState();
-    }
-
-    function pluckAndCacheState$(moduleName) {
-      const stateStream = state$.pluck(moduleName)
-        .distinctUntilChanged()
-        .publishReplay(1)
-        .refCount();
-
-      stateStreams[moduleName] = stateStream;
-      return stateStream;
     }
 
     /**
@@ -115,6 +102,16 @@ export function reduxStream(createReduxStore) {
       }
 
       return pluckAndCacheState$(moduleName);
+    }
+
+    function pluckAndCacheState$(moduleName) {
+      const stateStream = state$.pluck(moduleName)
+        .distinctUntilChanged()
+        .publishReplay(1)
+        .refCount();
+
+      stateStreams[moduleName] = stateStream;
+      return stateStream;
     }
 
     /**
